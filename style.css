@@ -33,3 +33,6 @@ dialog{border:1px solid var(--border);border-radius:var(--r);background:var(--bg
 @media print{.nav,.btn,.toast{display:none!important}.shell{display:block}}
 .chartbox{position:relative;height:260px}
 @media print{.noprint{display:none!important}.card{break-inside:avoid;box-shadow:none}}
+
+.syncbadge{font-size:.8rem;color:var(--muted);padding:var(--s2) var(--s2) 0}.syncbadge:empty{display:none}
+@media(max-width:720px){.syncbadge{display:none}}

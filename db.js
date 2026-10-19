@@ -1,5 +1,8 @@
 // All IndexedDB access lives here. Durations are stored as integer SECONDS.
 const DB_NAME = 'lifeos', DB_VERSION = 1;
+// Fires 'change' after every real data write (not timers/meta), so cloud sync can react. detail.imported = a backup import.
+export const events = new EventTarget();
+const changed = (detail = {}) => events.dispatchEvent(new CustomEvent('change', { detail }));
 export const STORES = ['settings', 'courses', 'semesters', 'routineActivities', 'routineExceptions', 'routineLogs', 'tasks',
   'focusSessions', 'distractionLogs', 'habits', 'habitLogs', 'milestones', 'weeklyReviews', 'tombstones', 'meta'];
 let db;
@@ -33,18 +36,19 @@ export const all = s => new Promise((res, rej) => { const q = db.transaction(s).
 export async function put(s, rec) {
   const now = new Date().toISOString();
   const r = { ...rec, id: rec.id || uid(), createdAt: rec.createdAt || now, updatedAt: now };
-  await tx(s, 'readwrite', t => { t.objectStore(s).put(r); }); return r;
+  await tx(s, 'readwrite', t => { t.objectStore(s).put(r); }); if (s !== 'meta') changed(); return r;
 }
 export async function remove(s, id) { // leaves a tombstone so an old backup cannot resurrect it
   await tx([s, 'tombstones'], 'readwrite', t => {
     t.objectStore(s).delete(id);
     if (s !== 'tombstones') t.objectStore('tombstones').put({ id: `${s}:${id}`, store: s, recordId: id, deletedAt: new Date().toISOString() });
   });
+  changed();
 }
 export async function putMany(s, recs) {
   const now = new Date().toISOString();
   const rs = recs.map(r => ({ ...r, id: r.id || uid(), createdAt: r.createdAt || now, updatedAt: now }));
-  await tx(s, 'readwrite', t => { rs.forEach(r => t.objectStore(s).put(r)); }); return rs;
+  await tx(s, 'readwrite', t => { rs.forEach(r => t.objectStore(s).put(r)); }); if (s !== 'meta') changed(); return rs;
 }
 export async function clearAll() { await tx(STORES, 'readwrite', t => { STORES.forEach(n => t.objectStore(n).clear()); }); }
 
@@ -67,13 +71,15 @@ export async function addSample() {
   ].map(x => ({ ...x, isSample: true })));
   await put('meta', { id: 'sampleLoaded', value: true });
 }
-export async function removeSample() {
+export async function removeSample() { // tombstones are written so the deletion also reaches your other devices
+  const now = new Date().toISOString();
   for (const s of STORES) {
-    if (s === 'settings' || s === 'tombstones') continue;
+    if (s === 'settings' || s === 'tombstones' || s === 'meta') continue;
     const ids = (await all(s)).filter(r => r.isSample).map(r => r.id);
-    if (ids.length) await tx(s, 'readwrite', t => { ids.forEach(i => t.objectStore(s).delete(i)); });
+    if (ids.length) await tx([s, 'tombstones'], 'readwrite', t => { ids.forEach(i => { t.objectStore(s).delete(i); t.objectStore('tombstones').put({ id: `${s}:${i}`, store: s, recordId: i, deletedAt: now }); }); });
   }
   await tx('meta', 'readwrite', t => { t.objectStore('meta').delete('sampleLoaded'); });
+  changed();
 }
 
 // Saves a finished focus session and clears the running-timer record in ONE transaction.
@@ -81,13 +87,15 @@ export async function removeSample() {
 export async function saveSession(rec) {
   const now = new Date().toISOString(), r = { ...rec, createdAt: now, updatedAt: now };
   await tx(['focusSessions', 'meta'], 'readwrite', t => { t.objectStore('focusSessions').put(r); t.objectStore('meta').delete('timer'); });
-  return r;
+  changed(); return r;
 }
 export async function deleteMeta(id) { await tx('meta', 'readwrite', t => { t.objectStore('meta').delete(id); }); }
 
 // Whole-database helpers for backup/import. applyOps runs in ONE transaction: it fully commits or changes nothing.
 export async function exportAll() { const o = {}; for (const s of STORES) if (s !== 'meta') o[s] = await all(s); return o; }
-export async function applyOps(puts, dels) {
+// source: 'import' (default, backup file) or 'sync' (cloud pull, which must not trigger another push).
+export async function applyOps(puts, dels, source = 'import') {
   const stores = [...new Set([...puts.map(p => p.store), ...dels.map(d => d.store)])]; if (!stores.length) return;
   await tx(stores, 'readwrite', t => { puts.forEach(p => t.objectStore(p.store).put(p.rec)); dels.forEach(d => t.objectStore(d.store).delete(d.id)); });
+  if (source !== 'sync') changed({ imported: true });
 }

@@ -19,7 +19,7 @@ export function backupCard({ h, toast, guard, DB }) {
         btn('Cancel', async () => { area.replaceChildren(); file.value = ''; })));
   }));
   return h('div', { class: 'card', style: 'margin-top:1rem;max-width:640px' }, h('h2', {}, 'Backup and device sync'),
-    h('p', { class: 'muted' }, 'LifeOS does not sync automatically. To move data between phone and laptop: export a backup on one device, send the file across, import it on the other, and repeat after changes. Browser storage is not encrypted and is not a backup.'),
+    h('p', { class: 'muted' }, 'Manual backup works with or without cloud sync. Export a backup before big changes: browser storage is not encrypted and is not a backup. Importing a backup also uploads the imported records when cloud sync is on.'),
     h('div', { class: 'row' }, btn('Export Backup', async () => { dl(`lifeos-backup-${day()}.json`, JSON.stringify(buildBackup(await DB.exportAll()), null, 2), 'application/json'); toast('Backup downloaded'); }, 'primary')),
     h('label', {}, 'Import Backup', file), area, h('h3', {}, 'CSV exports'),
     h('div', { class: 'row' }, ...Object.entries(CSV_SETS).map(([s, cols]) => btn(`${s}.csv`, async () => { dl(`lifeos-${s}-${day()}.csv`, toCSV(await DB.all(s), cols), 'text/csv'); }))));
