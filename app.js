@@ -4,6 +4,8 @@ import { createAcademic } from './academic.js';
 import { createTracking } from './tracking.js';
 import { createReports } from './reports.js';
 import { backupCard } from './portability.js';
+import * as Sync from './sync.js';
+import { syncCard } from './syncui.js';
 
 const $ = s => document.querySelector(s);
 const view = $('#view');
@@ -93,7 +95,16 @@ function showOnboarding() {
   const sample = h('input', { type: 'checkbox', id: 'f-sample' });
   const extra = h('fieldset', {}, h('legend', {}, 'Starting data'),
     h('label', {}, h('span', {}, sample, ' Load labeled sample data'), h('small', {}, 'Optional. Sample items are marked [Sample] and can be removed in Settings. Leave unchecked for a clean start.')));
-  dlg.replaceChildren(h('h1', { id: 'onboardTitle' }, 'Set up LifeOS'), h('p', { class: 'muted' }, 'Everything stays in this browser. You can change any of this later in Settings.'),
+  const restore = !Sync.enabled ? '' : (() => {
+    const em = h('input', { type: 'email', autocomplete: 'email', 'aria-label': 'Email' }), pw = h('input', { type: 'password', autocomplete: 'current-password', 'aria-label': 'Password' }), msg = h('p', { class: 'err', role: 'alert' });
+    return h('fieldset', {}, h('legend', {}, 'Already use LifeOS on another device?'), h('label', {}, 'Email', em), h('label', {}, 'Password', pw), msg,
+      h('button', { class: 'btn', type: 'button', onclick: guard(async () => { msg.textContent = '';
+        try { await Sync.signIn(em.value.trim(), pw.value); await Sync.syncNow(); } catch (e) { msg.textContent = e.message || String(e); return; }
+        settings = await DB.getSettings();
+        if (settings?.onboarded) { try { localStorage.setItem('lifeos.onboarded', '1'); } catch {} dlg.close(); await boot(); }
+        else msg.textContent = 'Signed in, but no cloud data was found. Finish the setup below instead.'; }) }, 'Sign in and restore'));
+  })();
+  dlg.replaceChildren(h('h1', { id: 'onboardTitle' }, 'Set up LifeOS'), restore, h('p', { class: 'muted' }, 'Everything stays in this browser. You can change any of this later in Settings.'),
     profileForm(DEFAULTS, { submitLabel: 'Finish setup', withCourses: true, extra, onSubmit: async (v, courseText) => {
       await DB.saveSettings({ ...v, onboarded: true });
       const lines = courseText.split('\n').map(l => l.split('|').map(x => x.trim())).filter(l => l[0]);
@@ -154,12 +165,14 @@ function renderSettings() {
   const sampleBtn = h('button', { class: 'btn', onclick: guard(async () => { await DB.addSample(); toast('Sample data loaded'); }) }, 'Load sample data');
   const rmBtn = h('button', { class: 'btn', onclick: guard(async () => { if (confirm('Remove all [Sample] records? Your own records stay.')) { await DB.removeSample(); toast('Sample data removed'); } }) }, 'Remove sample data');
   const wipe = h('button', { class: 'btn danger', onclick: guard(async () => {
-    if (!confirm('Delete ALL LifeOS data on this device? This cannot be undone. Export a backup first.')) return;
+    if (!confirm('Delete ALL LifeOS data on this device? Your cloud copy (if any) is kept and this device is signed out. Export a backup first.')) return;
     if (prompt('Type DELETE to confirm') !== 'DELETE') return;
+    await Sync.signOut(); // keeps the cloud copy; this only wipes THIS device and signs it out so it cannot re-download
     await DB.clearAll(); localStorage.removeItem('lifeos.onboarded'); location.hash = ''; location.reload(); }) }, 'Delete all local data');
   view.replaceChildren(h('h1', {}, 'Settings'),
     profileForm(settings, { submitLabel: 'Save settings', onSubmit: async v => { settings = await DB.saveSettings({ ...settings, ...v }); applyTheme(settings.theme); toast('Settings saved'); } }),
     h('div', { class: 'card', style: 'margin-top:1.5rem;max-width:640px' }, h('h2', {}, 'Sample data'), h('div', { class: 'row' }, sampleBtn, rmBtn)),
+    syncCard({ h, toast, guard, Sync }),
     backupCard({ h, toast, guard, DB }),
     h('div', { class: 'card', style: 'margin-top:1rem;max-width:640px' }, h('h2', {}, 'Danger zone'), wipe));
 }
@@ -188,9 +201,19 @@ async function boot() {
   route();
 }
 window.addEventListener('hashchange', () => settings && route());
+// Called when a cloud pull changed local data. Never re-render while the person is typing or a dialog is open.
+async function onRemoteChange() {
+  const was = settings; settings = await DB.getSettings();
+  if (!was?.onboarded) { if (settings?.onboarded) { $('#onboard').open && $('#onboard').close(); await boot(); } return; }
+  if (!settings) return; applyTheme(settings.theme);
+  const busy = document.querySelector('dialog[open]') || view.contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+  if (!busy && A) route();
+}
 (async () => {
   try { applyTheme(localStorage.getItem('lifeos.theme') || 'light'); } catch {}
   try { await DB.openDB(); await boot(); } catch (e) { fail(e); }
+  Sync.subscribe(s => { $('#syncStatus').textContent = Sync.badge(s); });
+  Sync.init({ onRemote: () => onRemoteChange().catch(fail) });
 })();
 
 if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(e => console.warn('Offline mode unavailable:', e.message)));

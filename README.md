@@ -11,14 +11,15 @@ ES modules and service workers need HTTP, so do not double-click `index.html`. I
 3. Open `https://USERNAME.github.io/REPOSITORY/`. All paths are relative, so the project sub-path works. GitHub Pages serves HTTPS, which service workers and installing the app require.
 
 ## Files
-`index.html` shell · `style.css` design · `app.js` routing, dashboard, settings · `academic.js` tasks, routine, planner · `tracking.js` focus timer, distractions, habits · `reports.js` + `charts.js` analytics · `calculations.js` all formulas · `db.js` IndexedDB · `backup.js` + `portability.js` export/import/CSV · `sw.js` offline cache · `tests/` browser tests.
+`index.html` shell · `style.css` design · `app.js` routing, dashboard, settings · `academic.js` tasks, routine, planner · `tracking.js` focus timer, distractions, habits · `reports.js` + `charts.js` analytics · `calculations.js` all formulas · `db.js` IndexedDB · `backup.js` + `portability.js` export/import/CSV · `sync.js` + `syncmerge.js` + `syncui.js` + `config.js` Supabase auto-sync (`supabase/schema.sql`) · `sw.js` offline cache · `tests/` browser tests.
 
-## Syncing phone and laptop (manual)
-GitHub Pages cannot sync browser storage. Use backups: Settings > Export Backup on one device, send the `.json` file across, Settings > Import Backup on the other. Repeat after changes.
-Import is a safe merge: new records are added, identical ones skipped, and records with the same ID but different content are listed as conflicts, which you resolve by choosing keep mine, use imported, or latest edit. Records you deleted are not resurrected by an older backup. Nothing is written until you confirm, and the write is all-or-nothing.
+## Syncing phone and laptop
+**Automatic (optional):** follow `SYNC_SETUP.md` to connect your own Supabase project. Edits upload within seconds, other devices update live, and everything still works offline. Last edit wins per record; deletions sync.
+
+**Manual:** Settings > Export Backup on one device, Settings > Import Backup on the other. Import is a safe merge: new records are added, identical ones skipped, and records with the same ID but different content are listed as conflicts (keep mine, use imported, or latest edit). Records you deleted are not resurrected by an older backup. Nothing is written until you confirm, and the write is all-or-nothing.
 
 ## Data and privacy
-Durations are stored as integer seconds, event times as ISO 8601, dates as `YYYY-MM-DD`. Nothing is sent anywhere. Browser storage is not encrypted, and clearing site data erases it, so export backups regularly. The only network request is loading Chart.js from cdnjs; no personal data is sent to it.
+Durations are stored as integer seconds, event times as ISO 8601, dates as `YYYY-MM-DD`. With cloud sync off (the default), nothing is sent anywhere. With it on, your records go only to your own Supabase project. Browser storage is not encrypted, and clearing site data erases it, so export backups regularly. Library requests: Chart.js from cdnjs and, if sync is on, the Supabase client from jsDelivr; no personal data is sent to them.
 
 ## Tests
 Open `tests/test-runner.html` through the local server, or run `node tests/test-runner.js`.
